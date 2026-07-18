@@ -1,7 +1,8 @@
+# FILE: screener/trade_params.py
 """
 screener/trade_params.py — Entry / Stop / Target / Position Size calculator.
 
-Uses ATR-based risk to set stops and a minimum 2.5:1 R:R for targets.
+Uses ATR-based risk to set stops and a minimum 2.25:1 R:R for targets.
 Hard caps stop at 8% from entry to prevent oversized risk on low-ATR stocks.
 Adjusts target downward if 52-week high acts as obvious resistance.
 
@@ -15,8 +16,12 @@ import uuid
 import logging
 from datetime import date
 
-from config import CAPITAL, RISK_PER_TRADE_PCT, REWARD_RISK_RATIO, HARD_STOP_PCT
-from db.database import get_connection
+# Constants for ATR stop and R:R optimization
+BREAKOUT_ATR_MULTIPLIER = 1.7
+PULLBACK_ATR_MULTIPLIER = 2.2
+OPTIMIZED_REWARD_RISK_RATIO = 2.25
+
+from config import CAPITAL, RISK_PER_TRADE_PCT, HARD_STOP_PCT # REWARD_RISK_RATIO is now overridden
 
 logger = logging.getLogger(__name__)
 
@@ -28,14 +33,14 @@ def calculate_trade_params(row: dict, setup_type: str, recent_high: float = None
 
     Breakout setup:
         Entry = pivot_high × 1.002  (buy just above the breakout level)
-        Stop  = entry − (1.5 × ATR14)
+        Stop  = entry − (BREAKOUT_ATR_MULTIPLIER × ATR14)
 
     Pullback setup:
         Entry = close × 1.005       (buy a fraction above last close)
-        Stop  = entry − (2 × ATR14)  (wider stop for deeper pullbacks)
+        Stop  = entry − (PULLBACK_ATR_MULTIPLIER × ATR14)  (wider stop for deeper pullbacks)
 
     Hard cap: stop never more than 8% below entry.
-    Target:   entry + (2.5 × risk). Optionally capped at 52-week high.
+    Target:   entry + (OPTIMIZED_REWARD_RISK_RATIO × risk). Optionally capped at 52-week high.
 
     Args:
         row:            dict with close, atr14, week52_high
@@ -68,10 +73,10 @@ def calculate_trade_params(row: dict, setup_type: str, recent_high: float = None
     if setup_type == "breakout":
         pivot = float(recent_high) if recent_high and recent_high > 0 else (week52_high or close)
         entry = round(pivot * 1.002, 2)
-        stop  = round(entry - (1.5 * atr), 2)
+        stop  = round(entry - (BREAKOUT_ATR_MULTIPLIER * atr), 2)
     else:  # pullback
         entry = round(close * 1.005, 2)
-        stop  = round(entry - (2.0 * atr), 2)
+        stop  = round(entry - (PULLBACK_ATR_MULTIPLIER * atr), 2)
 
     # Hard cap: never risk more than HARD_STOP_PCT from entry
     hard_floor = round(entry * (1 - HARD_STOP_PCT), 2)
@@ -82,7 +87,7 @@ def calculate_trade_params(row: dict, setup_type: str, recent_high: float = None
         logger.warning("Risk is zero or negative for %s — skipping.", row.get("symbol", "?"))
         return None
 
-    target = round(entry + (REWARD_RISK_RATIO * risk), 2)
+    target = round(entry + (OPTIMIZED_REWARD_RISK_RATIO * risk), 2)
 
     # Optionally clip target at 52-week high if it's sitting in the way
     if not disable_52w_cap and week52_high and entry < week52_high < target:

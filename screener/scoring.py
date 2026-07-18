@@ -1,4 +1,5 @@
-# STRATEGY NOTE: Refined base tightness by combining CoV and ATR/Price ratio, and slightly rebalanced weights.
+# FILE: screener/scoring.py
+# STRATEGY NOTE: Smoothed RSI momentum scoring, rebalanced weights, and adjusted trade stop and target parameters for improved robustness.
 """
 screener/scoring.py — Stage 4: Scoring & Ranking.
 
@@ -6,11 +7,11 @@ Scores each setup candidate on 7 weighted factors and returns the top picks.
 Never pads to a minimum count — if 0 candidates qualify, 0 picks are returned.
 
 Scoring weights (v3 spec):
-    28% RS Rating (relative strength vs peers)
-    20% Base tightness (lower consolidation CoV AND ATR/Price = better)
+    29% RS Rating (relative strength vs peers)
+    21% Base tightness (lower consolidation CoV AND ATR/Price = better)
     14% Volume ratio (relative to 20-day avg, capped at 3×)
     13% Proximity to 52-week high (closer = more strength)
-    10% RSI Momentum (controlled, peaking 70-80)
+     8% RSI Momentum (controlled, peaking around 75)
     10% Sector RS Rating
      5% Delivery pct slope (rising institutional buying, capped)
 """
@@ -75,27 +76,25 @@ def score_candidate(row: dict) -> float:
     # Scales the capped slope (e.g., 0.05 -> 5.0) for consistent weighting
     capped_delivery_slope_score = min(max(delivery_slope, 0.0), 0.10) * 100.0
 
-    # RSI Momentum Score: controlled, peaking around 70-80, smooth scaling
+    # RSI Momentum Score: controlled, smooth scaling, peaking around 75
     def get_rsi_score(rsi_val):
         if rsi_val < 50.0:
             return 0.0
-        elif 50.0 <= rsi_val <= 70.0:
-            return (rsi_val - 50.0) / 20.0  # Scales from 0 to 1 over 20 points
-        elif 70.0 < rsi_val <= 80.0:
-            return 1.0 # Flat peak for strong momentum
-        elif 80.0 < rsi_val <= 90.0:
-            return max(0.0, 1.0 - (rsi_val - 80.0) / 10.0) # Scales from 1 to 0 over 10 points
-        else: # RSI > 90
+        elif 50.0 <= rsi_val <= 75.0:
+            return (rsi_val - 50.0) / 25.0  # Scales from 0 to 1 over 25 points
+        elif 75.0 < rsi_val <= 90.0:
+            return max(0.0, 1.0 - (rsi_val - 75.0) / 15.0) # Scales from 1 to 0 over 15 points
+        else: # RSI > 90 or other edge cases
             return 0.0
     rsi_momentum_score = get_rsi_score(rsi) * 100.0 # Scale to 0-100
 
     # Composite score with rebalanced weights
     score = (
-        rs_rating                   * 0.28 +
-        combined_tightness_score    * 0.20 + # Increased weight for combined tightness
-        scaled_vol_ratio            * 0.14 + # Slightly decreased
-        scaled_proximity            * 0.13 + # Slightly decreased
-        rsi_momentum_score          * 0.10 +
+        rs_rating                   * 0.29 + # Increased weight
+        combined_tightness_score    * 0.21 + # Increased weight
+        scaled_vol_ratio            * 0.14 +
+        scaled_proximity            * 0.13 +
+        rsi_momentum_score          * 0.08 + # Decreased weight
         sector_rs                   * 0.10 +
         capped_delivery_slope_score * 0.05
     )
