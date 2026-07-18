@@ -1,4 +1,4 @@
-# STRATEGY NOTE: Introduced controlled RSI momentum peaking at 70-80, refined base tightness scaling, capped delivery percentage slope, and rebalanced weights to emphasize momentum and tightness.
+# STRATEGY NOTE: Refined base tightness by combining CoV and ATR/Price ratio, and slightly rebalanced weights.
 """
 screener/scoring.py — Stage 4: Scoring & Ranking.
 
@@ -7,9 +7,9 @@ Never pads to a minimum count — if 0 candidates qualify, 0 picks are returned.
 
 Scoring weights (v3 spec):
     28% RS Rating (relative strength vs peers)
-    18% Base tightness (lower consolidation CoV = better)
-    15% Volume ratio (relative to 20-day avg, capped at 3×)
-    14% Proximity to 52-week high (closer = more strength)
+    20% Base tightness (lower consolidation CoV AND ATR/Price = better)
+    14% Volume ratio (relative to 20-day avg, capped at 3×)
+    13% Proximity to 52-week high (closer = more strength)
     10% RSI Momentum (controlled, peaking 70-80)
     10% Sector RS Rating
      5% Delivery pct slope (rising institutional buying, capped)
@@ -39,15 +39,16 @@ def score_candidate(row: dict) -> float:
         except (TypeError, ValueError):
             return default
 
-    rs_rating      = safe("rs_rating", 50.0)
-    volume         = safe("volume")
-    avg_vol_20     = safe("avg_vol_20", 1.0)
-    tightness      = safe("consolidation_tightness", 0.1) # CoV
-    close          = safe("close")
-    week52_high    = safe("week52_high", close or 1.0)
-    delivery_slope = safe("delivery_pct_slope", 0.0)
-    sector_rs      = safe("sector_rs_rating", 50.0)
-    rsi            = safe("rsi", 50.0) # New indicator
+    rs_rating           = safe("rs_rating", 50.0)
+    volume              = safe("volume")
+    avg_vol_20          = safe("avg_vol_20", 1.0)
+    tightness_cov       = safe("consolidation_tightness", 0.1) # CoV
+    atr_to_price_ratio  = safe("atr_to_price_ratio", 0.05) # New indicator for tightness
+    close               = safe("close")
+    week52_high         = safe("week52_high", close or 1.0)
+    delivery_slope      = safe("delivery_pct_slope", 0.0)
+    sector_rs           = safe("sector_rs_rating", 50.0)
+    rsi                 = safe("rsi", 50.0)
 
     # Volume ratio (capped at 3.0 to prevent outliers dominating)
     vol_ratio = min(volume / avg_vol_20, 3.0) if avg_vol_20 > 0 else 0.0
@@ -59,10 +60,16 @@ def score_candidate(row: dict) -> float:
     # Scale proximity (0-1) to 0-100
     scaled_proximity = proximity * 100.0
 
-    # Tightness score: lower CoV is better; invert and scale
-    # CoV near 0 → tightness_score near 100; CoV ≥ 0.25 → near 0
-    # Adjusted threshold for slightly smoother decay and less aggressive zeroing
-    tightness_score = max(0.0, (0.25 - tightness) / 0.25) * 100.0
+    # Tightness score: lower CoV and ATR/Price ratio are better; invert and scale
+    # CoV score: CoV near 0 → score near 100; CoV ≥ 0.25 → near 0
+    tightness_cov_score = max(0.0, (0.25 - tightness_cov) / 0.25) * 100.0
+
+    # ATR/Price Ratio score: ratio near 0 → score near 100; ratio ≥ 0.10 → near 0
+    # A ratio of 0.10 means ATR is 10% of price, which is quite volatile for a tight base.
+    tightness_atr_score = max(0.0, (0.10 - atr_to_price_ratio) / 0.10) * 100.0
+
+    # Combine both tightness scores (simple average)
+    combined_tightness_score = (tightness_cov_score + tightness_atr_score) / 2.0
 
     # Delivery percentage slope: capped at 0.10 (10%) positive slope to prevent overfitting
     # Scales the capped slope (e.g., 0.05 -> 5.0) for consistent weighting
@@ -84,12 +91,12 @@ def score_candidate(row: dict) -> float:
 
     # Composite score with rebalanced weights
     score = (
-        rs_rating                  * 0.28 +
-        tightness_score            * 0.18 +
-        scaled_vol_ratio           * 0.15 +
-        scaled_proximity           * 0.14 +
-        rsi_momentum_score         * 0.10 + # New component
-        sector_rs                  * 0.10 +
+        rs_rating                   * 0.28 +
+        combined_tightness_score    * 0.20 + # Increased weight for combined tightness
+        scaled_vol_ratio            * 0.14 + # Slightly decreased
+        scaled_proximity            * 0.13 + # Slightly decreased
+        rsi_momentum_score          * 0.10 +
+        sector_rs                   * 0.10 +
         capped_delivery_slope_score * 0.05
     )
 
