@@ -1,0 +1,232 @@
+[
+  {
+    "generation": 1,
+    "score": -2.83,
+    "pnl_pct": 1.84,
+    "win_rate": 69.7,
+    "max_drawdown_pct": 3.41,
+    "trades_count": 42,
+    "status": "discarded",
+    "strategy_notes": "Baseline scoring logic using default trend and momentum parameters."
+  },
+  {
+    "generation": 2,
+    "score": -3.5,
+    "pnl_pct": -2.1,
+    "win_rate": 45.0,
+    "max_drawdown_pct": 6.8,
+    "trades_count": 55,
+    "status": "discarded",
+    "strategy_notes": "Weighting RSI indicators and volume changes higher."
+  },
+  {
+    "generation": 3,
+    "score": -1.25,
+    "pnl_pct": 4.15,
+    "win_rate": 58.0,
+    "max_drawdown_pct": 4.5,
+    "trades_count": 38,
+    "status": "accepted",
+    "strategy_notes": "Increased relative strength scoring component weights."
+  },
+  {
+    "generation": 4,
+    "score": -9999.0,
+    "pnl_pct": 0.0,
+    "win_rate": 0.0,
+    "max_drawdown_pct": 0.0,
+    "trades_count": 0,
+    "status": "failed",
+    "strategy_notes": "[FAILED] Syntactically invalid indicator assignment inside calculate_score."
+  },
+  {
+    "generation": 5,
+    "score": 0.12,
+    "pnl_pct": 8.54,
+    "win_rate": 62.5,
+    "max_drawdown_pct": 3.8,
+    "trades_count": 50,
+    "status": "accepted",
+    "strategy_notes": "Added sector momentum filtering score overlays."
+  },
+  {
+    "generation": 6,
+    "score": 1.85,
+    "pnl_pct": 24.5,
+    "win_rate": 48.0,
+    "max_drawdown_pct": 12.5,
+    "trades_count": 120,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: -0.45%). Note: Aggressive breakout sizing based on volume spikes."
+  },
+  {
+    "generation": 7,
+    "score": 0.45,
+    "pnl_pct": 11.2,
+    "win_rate": 64.0,
+    "max_drawdown_pct": 3.1,
+    "trades_count": 45,
+    "status": "accepted",
+    "strategy_notes": "Introduced ATR contraction scoring for tightness setups."
+  },
+  {
+    "generation": 8,
+    "score": -0.8,
+    "pnl_pct": 6.2,
+    "win_rate": 52.0,
+    "max_drawdown_pct": 5.4,
+    "trades_count": 60,
+    "status": "discarded",
+    "strategy_notes": "Adding short term consolidation indicators to entry rank."
+  },
+  {
+    "generation": 9,
+    "score": 1.25,
+    "pnl_pct": 18.9,
+    "win_rate": 68.0,
+    "max_drawdown_pct": 2.8,
+    "trades_count": 35,
+    "status": "accepted",
+    "strategy_notes": "Integrated multi-timeframe RS rankings with volatility bounds."
+  },
+  {
+    "generation": 10,
+    "score": 2.1,
+    "pnl_pct": 32.4,
+    "win_rate": 52.5,
+    "max_drawdown_pct": 14.8,
+    "trades_count": 92,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: -1.24%). Note: Leveraging delivery percentage trend lines."
+  },
+  {
+    "generation": 11,
+    "score": -1.7399999999999998,
+    "pnl_pct": 3.3,
+    "win_rate": 72.7,
+    "max_drawdown_pct": 2.55,
+    "trades_count": 42,
+    "status": "discarded",
+    "strategy_notes": "Introduced an RSI momentum component that rewards strong but not overextended momentum (RSI 50-80, peaking at 70), balancing its weight by slightly reducing volume ratio, proximity to 52-week high, and delivery percentage slope contributions to prevent overfitting."
+  },
+  {
+    "generation": 12,
+    "score": -2.74,
+    "pnl_pct": 1.0,
+    "win_rate": 67.6,
+    "max_drawdown_pct": 3.23,
+    "trades_count": 43,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 0.97%). Note: Introduced ATR contraction scoring, slightly rebalanced weights by reducing delivery percentage slope and some RS/volume to prevent overfitting and make space for ATR.%)"
+  },
+  {
+    "generation": 13,
+    "score": -2.46,
+    "pnl_pct": 2.36,
+    "win_rate": 69.7,
+    "max_drawdown_pct": 3.19,
+    "trades_count": 42,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 0.94%). Note: Optimized ranking logic parameters.%)"
+  },
+  {
+    "generation": 14,
+    "score": -1.8299999999999998,
+    "pnl_pct": 2.04,
+    "win_rate": 70.6,
+    "max_drawdown_pct": 2.57,
+    "trades_count": 42,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 1.24%). Note: Refined tightness scoring by combining CoV and ATR/price ratio, rebalancing weights to emphasize tightness and reduce contributions from volume ratio and delivery percentage slope.%)"
+  },
+  {
+    "generation": 15,
+    "score": -1.8299999999999998,
+    "pnl_pct": 2.04,
+    "win_rate": 70.6,
+    "max_drawdown_pct": 2.57,
+    "trades_count": 42,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 1.24%). Note: Refined tightness scoring by combining CoV and ATR/price ratio, introduced a controlled RSI momentum component, and rebalanced weights based on overfitting history.%)"
+  },
+  {
+    "generation": 16,
+    "score": -2.74,
+    "pnl_pct": 1.0,
+    "win_rate": 67.6,
+    "max_drawdown_pct": 3.23,
+    "trades_count": 43,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 0.94%). Note: Rebalanced weights, introduced controlled ATR contraction and RSI momentum, and capped delivery percentage slope to improve robustness and prevent overfitting.%)"
+  },
+  {
+    "generation": 17,
+    "score": -1.8299999999999998,
+    "pnl_pct": 2.04,
+    "win_rate": 70.6,
+    "max_drawdown_pct": 2.57,
+    "trades_count": 42,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 1.24%). Note: Optimized ranking logic parameters.%)"
+  },
+  {
+    "generation": 18,
+    "score": -9999.0,
+    "pnl_pct": 0.0,
+    "win_rate": 0.0,
+    "max_drawdown_pct": 0.0,
+    "trades_count": 0,
+    "status": "failed",
+    "strategy_notes": "[FAILED] Optimized ranking logic parameters."
+  },
+  {
+    "generation": 19,
+    "score": -1.7399999999999998,
+    "pnl_pct": 3.3,
+    "win_rate": 72.7,
+    "max_drawdown_pct": 2.55,
+    "trades_count": 42,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 0.80%). Note: Optimized ranking logic parameters.%)"
+  },
+  {
+    "generation": 20,
+    "score": -2.37,
+    "pnl_pct": 0.85,
+    "win_rate": 68.6,
+    "max_drawdown_pct": 2.94,
+    "trades_count": 42,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 0.91%). Note: Refined base tightness by combining CoV and ATR/Price ratio, introduced controlled RSI momentum (peaking at 70), and rebalanced weights while capping delivery slope to improve robustness.%)"
+  },
+  {
+    "generation": 21,
+    "score": -2.42,
+    "pnl_pct": 2.65,
+    "win_rate": 70.6,
+    "max_drawdown_pct": 3.18,
+    "trades_count": 43,
+    "status": "look-ahead",
+    "strategy_notes": "[CAUSAL REJECT] Overfitted (Test expectancy: 0.94%). Note: Introduced a controlled RSI momentum component peaking at 70, capped delivery percentage slope, and rebalanced weights to emphasize robustness.%)"
+  },
+  {
+    "generation": 22,
+    "score": -2.74,
+    "pnl_pct": 1.0,
+    "win_rate": 67.6,
+    "max_drawdown_pct": 3.23,
+    "trades_count": 43,
+    "status": "accepted",
+    "strategy_notes": "Introduced controlled RSI momentum peaking at 70-80, refined base tightness scaling, capped delivery percentage slope, and rebalanced weights to emphasize momentum and tightness."
+  },
+  {
+    "generation": 23,
+    "score": -1.8299999999999998,
+    "pnl_pct": 2.04,
+    "win_rate": 70.6,
+    "max_drawdown_pct": 2.57,
+    "trades_count": 42,
+    "status": "accepted",
+    "strategy_notes": "Refined base tightness by combining CoV and ATR/Price ratio, and slightly rebalanced weights."
+  }
+]
