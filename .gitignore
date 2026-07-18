@@ -1,0 +1,22 @@
+# Environment & secrets
+.env
+
+# SQLite database (local only — never commit)
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

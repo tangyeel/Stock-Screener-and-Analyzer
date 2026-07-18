@@ -1,0 +1,12 @@
+pandas
+ta
+yfinance
+requests
+python-dotenv
+numpy
+fastapi
+uvicorn
+httpx
+rapidfuzz
+streamlit
+plotly
