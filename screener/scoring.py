@@ -1,16 +1,18 @@
+# STRATEGY NOTE: Introduced controlled RSI momentum peaking at 70-80, refined base tightness scaling, capped delivery percentage slope, and rebalanced weights to emphasize momentum and tightness.
 """
 screener/scoring.py — Stage 4: Scoring & Ranking.
 
-Scores each setup candidate on 6 weighted factors and returns the top picks.
+Scores each setup candidate on 7 weighted factors and returns the top picks.
 Never pads to a minimum count — if 0 candidates qualify, 0 picks are returned.
 
-Scoring weights (v2 spec §7, Stage 4):
+Scoring weights (v3 spec):
     28% RS Rating (relative strength vs peers)
-    20% Volume ratio (relative to 20-day avg, capped at 3×)
     18% Base tightness (lower consolidation CoV = better)
+    15% Volume ratio (relative to 20-day avg, capped at 3×)
     14% Proximity to 52-week high (closer = more strength)
-    12% Sector RS Rating
-     8% Delivery pct slope (rising institutional buying)
+    10% RSI Momentum (controlled, peaking 70-80)
+    10% Sector RS Rating
+     5% Delivery pct slope (rising institutional buying, capped)
 """
 
 import logging
@@ -37,32 +39,58 @@ def score_candidate(row: dict) -> float:
         except (TypeError, ValueError):
             return default
 
-    rs_rating   = safe("rs_rating", 50)
-    volume      = safe("volume")
-    avg_vol_20  = safe("avg_vol_20", 1)
-    tightness   = safe("consolidation_tightness", 0.1)
-    close       = safe("close")
-    week52_high = safe("week52_high", close or 1)
-    delivery_slope = safe("delivery_pct_slope", 0)
-    sector_rs   = safe("sector_rs_rating", 50)   # defaults to neutral if not populated
+    rs_rating      = safe("rs_rating", 50.0)
+    volume         = safe("volume")
+    avg_vol_20     = safe("avg_vol_20", 1.0)
+    tightness      = safe("consolidation_tightness", 0.1) # CoV
+    close          = safe("close")
+    week52_high    = safe("week52_high", close or 1.0)
+    delivery_slope = safe("delivery_pct_slope", 0.0)
+    sector_rs      = safe("sector_rs_rating", 50.0)
+    rsi            = safe("rsi", 50.0) # New indicator
 
-    # Volume ratio (capped at 3× to prevent outliers dominating)
-    vol_ratio = min(volume / avg_vol_20, 3) if avg_vol_20 > 0 else 0
+    # Volume ratio (capped at 3.0 to prevent outliers dominating)
+    vol_ratio = min(volume / avg_vol_20, 3.0) if avg_vol_20 > 0 else 0.0
+    # Scale vol_ratio (0-3) to 0-100 for consistent weighting
+    scaled_vol_ratio = vol_ratio * (100.0 / 3.0)
 
     # Proximity to 52-week high: close/high ratio (1.0 = at all-time high)
-    proximity = (close / week52_high) if week52_high > 0 else 0
+    proximity = (close / week52_high) if week52_high > 0 else 0.0
+    # Scale proximity (0-1) to 0-100
+    scaled_proximity = proximity * 100.0
 
     # Tightness score: lower CoV is better; invert and scale
-    # CoV near 0 → tightness_score near 100; CoV ≥ 0.2 → near 0
-    tightness_score = max(0, (0.2 - tightness) / 0.2) * 100
+    # CoV near 0 → tightness_score near 100; CoV ≥ 0.25 → near 0
+    # Adjusted threshold for slightly smoother decay and less aggressive zeroing
+    tightness_score = max(0.0, (0.25 - tightness) / 0.25) * 100.0
 
+    # Delivery percentage slope: capped at 0.10 (10%) positive slope to prevent overfitting
+    # Scales the capped slope (e.g., 0.05 -> 5.0) for consistent weighting
+    capped_delivery_slope_score = min(max(delivery_slope, 0.0), 0.10) * 100.0
+
+    # RSI Momentum Score: controlled, peaking around 70-80, smooth scaling
+    def get_rsi_score(rsi_val):
+        if rsi_val < 50.0:
+            return 0.0
+        elif 50.0 <= rsi_val <= 70.0:
+            return (rsi_val - 50.0) / 20.0  # Scales from 0 to 1 over 20 points
+        elif 70.0 < rsi_val <= 80.0:
+            return 1.0 # Flat peak for strong momentum
+        elif 80.0 < rsi_val <= 90.0:
+            return max(0.0, 1.0 - (rsi_val - 80.0) / 10.0) # Scales from 1 to 0 over 10 points
+        else: # RSI > 90
+            return 0.0
+    rsi_momentum_score = get_rsi_score(rsi) * 100.0 # Scale to 0-100
+
+    # Composite score with rebalanced weights
     score = (
-        rs_rating   * 0.28 +
-        vol_ratio   * 20   * 0.20 +   # scale: 3× vol → 60 pts; ×0.20 → contributes up to 12
-        tightness_score     * 0.18 +
-        proximity   * 100  * 0.14 +
-        sector_rs          * 0.12 +
-        max(delivery_slope, 0) * 10 * 0.08
+        rs_rating                  * 0.28 +
+        tightness_score            * 0.18 +
+        scaled_vol_ratio           * 0.15 +
+        scaled_proximity           * 0.14 +
+        rsi_momentum_score         * 0.10 + # New component
+        sector_rs                  * 0.10 +
+        capped_delivery_slope_score * 0.05
     )
 
     return round(score, 2)
