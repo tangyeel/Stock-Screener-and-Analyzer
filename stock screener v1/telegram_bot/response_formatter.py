@@ -266,10 +266,21 @@ def format_backtest_report() -> str:
     from db.database import get_connection
 
     with get_connection() as conn:
+        # First try to get the latest run with actual trades/signals
         run = conn.execute(
-            """SELECT id, run_name, start_date, end_date, created_at
-               FROM backtest_runs ORDER BY created_at DESC LIMIT 1"""
+            """SELECT r.id, r.run_name, r.start_date, r.end_date, r.created_at
+               FROM backtest_runs r
+               JOIN backtest_metrics m ON r.id = m.backtest_run_id
+               WHERE m.total_signals > 0
+               ORDER BY r.created_at DESC LIMIT 1"""
         ).fetchone()
+        
+        if not run:
+            # Fallback to absolute latest if none have signals
+            run = conn.execute(
+                """SELECT id, run_name, start_date, end_date, created_at
+                   FROM backtest_runs ORDER BY created_at DESC LIMIT 1"""
+            ).fetchone()
 
     if not run:
         return "No backtest runs found\\. Run `python run_backtest\\.py --incremental` first\\."

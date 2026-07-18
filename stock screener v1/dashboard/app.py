@@ -10,6 +10,7 @@ PAGES = {
     "📈 Pipeline":        "screener",
     "🤖 Analysis Bot":    "bot",
     "🔬 Backtesting":     "backtest",
+    "🧠 Autoresearch":    "autoresearch",
 }
 
 st.set_page_config(
@@ -493,7 +494,8 @@ st.sidebar.markdown(
 )
 
 # ── Page router ────────────────────────────────────────────────────────────
+import importlib
 page_module = PAGES[selected]
-__import__(f"dashboard.pages.{page_module}", fromlist=["render"])
-mod = sys.modules[f"dashboard.pages.{page_module}"]
+mod = importlib.import_module(f"dashboard.pages.{page_module}")
+importlib.reload(mod)
 mod.render()

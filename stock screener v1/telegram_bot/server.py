@@ -268,6 +268,7 @@ async def drain_pending_queue():
 # ── Webhook endpoint ─────────────────────────────────────────────────────────
 
 @app.post("/webhook")
+@app.post("/telegram")
 async def webhook(request: Request):
     body = await request.json()
     message = body.get("message", {})

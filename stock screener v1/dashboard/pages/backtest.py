@@ -29,12 +29,21 @@ def render():
     run_names = _build_run_labels(runs)
     run_ids = runs["id"].tolist()
 
+    # Find default index (first run that has actual trades/signals)
+    default_idx = 0
+    if "total_signals" in runs.columns:
+        for idx, row in runs.iterrows():
+            if pd.notna(row["total_signals"]) and row["total_signals"] > 0:
+                default_idx = idx
+                break
+
     col_sel, col_compare = st.columns([2, 1])
     with col_sel:
         selected_idx = st.selectbox(
             "Select Run",
             range(len(run_names)),
             format_func=lambda i: run_names[i],
+            index=default_idx,
         )
         run_id = run_ids[selected_idx]
 
@@ -438,6 +447,8 @@ def _render_stock_breakdown(triggered: pd.DataFrame):
     st.plotly_chart(fig, width='stretch')
 
     display = grouped.copy()
+    if "abs_avg_pnl" in display.columns:
+        display = display.drop(columns=["abs_avg_pnl"])
     display["win_rate"] = display["win_rate"].apply(lambda x: f"{x*100:.1f}%")
     display["avg_pnl"] = display["avg_pnl"].apply(lambda x: f"{x:+.2f}%")
     display["total_pnl"] = display["total_pnl"].apply(lambda x: f"{x:+.2f}%")

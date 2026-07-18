@@ -51,7 +51,7 @@ def q_trade_outcomes() -> pd.DataFrame:
 
 # ── Bot queries ───────────────────────────────────────────────────────────────
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=10)
 def q_query_log() -> pd.DataFrame:
     with get_connection() as conn:
         rows = conn.execute(
@@ -60,7 +60,7 @@ def q_query_log() -> pd.DataFrame:
     return _to_df(rows)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=10)
 def q_resolution_log() -> pd.DataFrame:
     with get_connection() as conn:
         rows = conn.execute(
@@ -69,7 +69,7 @@ def q_resolution_log() -> pd.DataFrame:
     return _to_df(rows)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=10)
 def q_analysis_log() -> pd.DataFrame:
     with get_connection() as conn:
         rows = conn.execute(
@@ -84,7 +84,10 @@ def q_analysis_log() -> pd.DataFrame:
 def q_backtest_runs() -> pd.DataFrame:
     with get_connection() as conn:
         rows = conn.execute(
-            """SELECT * FROM backtest_runs ORDER BY created_at DESC"""
+            """SELECT r.*, m.total_signals, m.total_triggered 
+               FROM backtest_runs r
+               LEFT JOIN backtest_metrics m ON r.id = m.backtest_run_id
+               ORDER BY r.created_at DESC"""
         ).fetchall()
     return _to_df(rows)
 

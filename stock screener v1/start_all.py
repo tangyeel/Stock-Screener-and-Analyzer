@@ -177,11 +177,21 @@ def _start_dashboard():
     global _streamlit_process
     _free_port(8501)
     
+    log_dir = "G:\\Stock Screener\\run_logging"
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = open(os.path.join(log_dir, "streamlit.log"), "w", encoding="utf-8")
+    
     _streamlit_process = subprocess.Popen(
-        ["streamlit", "run", "dashboard/app.py", "--server.port", "8501"],
+        [
+            sys.executable, "-m", "streamlit", "run", "dashboard/app.py",
+            "--server.port", "8501",
+            "--server.address", "127.0.0.1",
+            "--server.headless", "true",
+            "--browser.gatherUsageStats", "false"
+        ],
         cwd="G:\\Stock Screener",
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=log_file,
     )
 
 

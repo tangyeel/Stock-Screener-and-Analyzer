@@ -20,7 +20,15 @@ def _latency_color(ms: float) -> str:
 
 
 def render():
-    st.title("Telegram Bot Analytics")
+    col_t, col_b = st.columns([3, 1])
+    with col_t:
+        st.title("Telegram Bot Analytics")
+    with col_b:
+        if st.button("🔄 Refresh Bot Logs"):
+            q_query_log.clear()
+            q_resolution_log.clear()
+            q_analysis_log.clear()
+            st.rerun()
 
     queries = q_query_log()
     resolutions = q_resolution_log()
