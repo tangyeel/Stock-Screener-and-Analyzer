@@ -2,7 +2,7 @@
 """
 autoresearch_loop.py
 
-Autonomous loop that optimizes screener/scoring.py using LLMs.
+Autonomous loop that optimizes screener/scoring.py and screener/trade_params.py using LLMs.
 Uses Gemini API as primary, and Groq as fallback.
 Evaluates strategies using Train/Test (Out-of-Sample) splits.
 Target Fitness Metric = Expectancy - |Max Drawdown|
@@ -28,7 +28,8 @@ if hasattr(sys.stdout, 'reconfigure'):
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8')
 
-TARGET_FILE = os.path.join("screener", "scoring.py")
+FILE_SCORING = os.path.join("screener", "scoring.py")
+FILE_TRADE_PARAMS = os.path.join("screener", "trade_params.py")
 HISTORY_FILE = "autoresearch_history.json"
 STATUS_FILE = os.path.join("run_logging", "autoresearch_status.json")
 
@@ -52,8 +53,15 @@ def update_status(is_running: bool, current_iteration: int, total_iterations: in
     try:
         with open(STATUS_FILE, "w") as f:
             json.dump(status_data, f, indent=2)
-    except Exception as e:
+    except Exception:
         pass
+
+def ensure_valid_files():
+    """Self-heal target files if they are empty or missing."""
+    for fpath in [FILE_SCORING, FILE_TRADE_PARAMS]:
+        if not os.path.exists(fpath) or os.path.getsize(fpath) == 0:
+            print(f"{fpath} was empty or missing. Self-healing via git checkout...", flush=True)
+            subprocess.run(["git", "checkout", "HEAD", "--", fpath], check=True)
 
 def run_backtest_and_get_metrics(start_date: str, end_date: str):
     """Runs the backtest with --json flag and returns the metrics dictionary."""
@@ -107,34 +115,65 @@ def save_history(history):
     with open(HISTORY_FILE, "w") as f:
         json.dump(history, f, indent=2)
 
-def prompt_llm(current_code, history_text, baseline_fitness, error_trace=None):
+def get_last_failure_reflection(history):
+    """Find the last failed or look-ahead trial in history to feed into the prompt context for self-reflection."""
+    for h in reversed(history):
+        if h.get("status") in ["look-ahead", "failed", "overfit"]:
+            return f"""--- PREVIOUS TRIAL REFLECTION (Gen {h['generation']}) ---
+Status: {h['status']}
+Note: {h['strategy_notes']}
+Train Score / Fitness: {h.get('score', -9999.0)}
+Train Trades: {h.get('trades_count', 0)}
+Reflect on this failure or look-ahead reject. Identify what caused the overfitting (e.g. over-aggressive stops, weights that were too strict, or mathematical cliffs) and describe how you will fix it in the next configuration.
+"""
+    return ""
+
+def prompt_llm(scoring_code, trade_params_code, history_text, baseline_fitness, reflection_text, error_trace=None):
     prompt = f"""You are an expert quantitative trading researcher optimizing a swing trading screener.
-Your goal is to optimize the scoring and ranking logic in `screener/scoring.py` to maximize strategy expectancy while minimizing drawdown.
-Target Fitness Metric = Expectancy % - |Max Drawdown| %.
+Your goal is to optimize both:
+1. Stock scoring/ranking logic in `screener/scoring.py` (how we select candidate setups).
+2. Risk, target, and stop parameters in `screener/trade_params.py` (how we manage entry stops and target risk-to-reward ratios).
+
+The objective function to maximize is: Fitness = (Expectancy % - |Max Drawdown| %).
 Current Baseline Fitness: {baseline_fitness:.2f}
 
-GUIDELINES FOR GENERATING STRONG STRATEGIES:
-1. Combine indicators smoothly (Relative Strength RS, Volume-to-20D Volume ratio, Base Tightness/CoV, Proximity to 52w High, Sector RS, Delivery Slope, and RSI).
-2. Avoid binary or cliff-like thresholds that eliminate candidates abruptly; use smooth scaling (e.g. min(vol_ratio, 3.0), normalized RSI bounds 50-75).
-3. Ensure both `score_candidate(row)` and `rank_and_select(candidates, max_picks)` are present with identical function signatures.
+GUIDELINES FOR QUANTITATIVE ROBUSTNESS:
+1. Optimize both scoring weights in `scoring.py` AND risk multipliers in `trade_params.py` (e.g., breakout ATR stop, pullback ATR stop, and target risk-reward multiplier constants at the top).
+2. Ensure indicators scale smoothly. Avoid binary score thresholds that cause overfitting.
+3. Keep the target functions and constants matching their current signatures exactly.
 
+{reflection_text}
 """
     if error_trace:
-        prompt += f"YOUR PREVIOUS ATTEMPT CRASHED WITH THIS ERROR:\n{error_trace}\nFix the error and try again.\n\n"
+        prompt += f"YOUR PREVIOUS ATTEMPT CRASHED WITH THIS ERROR:\n{error_trace}\nFix the syntax/runtime issue and retry.\n\n"
         
-    prompt += f"""History of prior trials (do not repeat failed or overfitted ideas):
+    prompt += f"""Prior trials history:
 {history_text}
 
-Current working `scoring.py`:
+Current working `screener/scoring.py` code:
 ```python
-{current_code}
+{scoring_code}
 ```
 
-Propose a complete, improved replacement for `scoring.py`.
-You MUST put a comment at the very top of your file in this exact format:
-# STRATEGY NOTE: [Concise one-line summary of what you modified]
+Current working `screener/trade_params.py` code:
+```python
+{trade_params_code}
+```
 
-Output ONLY valid Python code inside a single ```python code block. No markdown explanation outside the code block.
+Propose the replacement code for BOTH files. Output them in separate, clearly labeled code blocks as shown below:
+
+```python
+# FILE: screener/scoring.py
+# STRATEGY NOTE: [Summarize what you modified in a single sentence]
+[Insert complete scoring.py code here]
+```
+
+```python
+# FILE: screener/trade_params.py
+[Insert complete trade_params.py code here]
+```
+
+Output ONLY the code blocks. No other conversational text.
 """
     try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
@@ -145,8 +184,7 @@ Output ONLY valid Python code inside a single ```python code block. No markdown 
         }
         response = requests.post(url, headers=headers, json=data, timeout=120)
         response.raise_for_status()
-        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return text
+        return response.json()["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
         print(f"Gemini API failed: {e}. Falling back to Groq...", flush=True)
         
@@ -161,41 +199,54 @@ Output ONLY valid Python code inside a single ```python code block. No markdown 
             "messages": [{"role": "user", "content": prompt}],
             "temperature": 0.7
         }
-        response = requests.post(url, headers=headers, json=data, timeout=30)
+        response = requests.post(url, headers=headers, json=data, timeout=120)
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"Groq API also failed: {e}", flush=True)
         return None
 
-def extract_code(llm_output):
-    if not llm_output: return None
-    if "```python" in llm_output:
-        code = llm_output.split("```python")[1].split("```")[0]
-        return code.strip()
-    if "```" in llm_output:
-         code = llm_output.split("```")[1].split("```")[0]
-         return code.strip()
-    return llm_output.strip()
+def extract_file_blocks(llm_output):
+    """Parse separate markdown code blocks from LLM response based on code signatures."""
+    if not llm_output:
+        return None, None
+
+    # Try split first, it is the most reliable for finding blocks regardless of header comments
+    parts = llm_output.split("```python")
+    scoring_code = None
+    trade_params_code = None
+
+    for p in parts[1:]:
+        code_block = p.split("```")[0].strip()
+        if "def score_candidate" in code_block or "def rank_and_select" in code_block:
+            scoring_code = code_block
+        elif "calculate_trade_params" in code_block or "BREAKOUT_ATR_MULTIPLIER" in code_block:
+            trade_params_code = code_block
+
+    # Fallback to regex matches if split did not resolve both
+    if not scoring_code or not trade_params_code:
+        blocks = re.findall(r"```python\s*(.*?)\n(.*?)```", llm_output, re.DOTALL)
+        for header, body in blocks:
+            code_block = (header + "\n" + body).strip()
+            if "def score_candidate" in code_block or "def rank_and_select" in code_block:
+                scoring_code = code_block
+            elif "calculate_trade_params" in code_block or "BREAKOUT_ATR_MULTIPLIER" in code_block:
+                trade_params_code = code_block
+
+    return scoring_code, trade_params_code
 
 def extract_strategy_note(code):
     match = re.search(r"#\s*STRATEGY NOTE:\s*(.*)", code, re.IGNORECASE)
     if match:
         return match.group(1).strip()
-    return "Optimized ranking logic parameters."
-
-def ensure_valid_scoring_file():
-    """Self-heal target file if it is empty or missing."""
-    if not os.path.exists(TARGET_FILE) or os.path.getsize(TARGET_FILE) == 0:
-        print("screener/scoring.py was empty or missing. Self-healing via git checkout...", flush=True)
-        subprocess.run(["git", "checkout", "HEAD", "--", TARGET_FILE], check=True)
+    return "Optimized entries, stops, and ranking parameters."
 
 def main():
     parser = argparse.ArgumentParser(description="Autoresearch LLM Strategy Optimizer")
     parser.add_argument("--iterations", type=int, default=1, help="Number of research iterations to execute")
     args = parser.parse_args()
 
-    ensure_valid_scoring_file()
+    ensure_valid_files()
 
     num_iterations = args.iterations
     print(f"Starting Autoresearch Loop for {num_iterations} iteration(s)...", flush=True)
@@ -228,33 +279,43 @@ def main():
             update_status(True, i + 1, num_iterations, f"Running Generation {current_gen}...")
             print(f"\n--- Generation {current_gen} (Run {i + 1}/{num_iterations}) ---", flush=True)
             
-            with open(TARGET_FILE, "r") as f:
-                current_code = f.read()
+            with open(FILE_SCORING, "r") as f:
+                scoring_code = f.read()
+            with open(FILE_TRADE_PARAMS, "r") as f:
+                trade_params_code = f.read()
                 
             history_text = ""
             for h in history[-10:]:
                 history_text += f"Gen {h['generation']}: Fitness={h['score']:.2f}, Status={h['status']}, Note: {h['strategy_notes']}\n"
                 
-            print("Prompting LLM for new strategy...", flush=True)
-            llm_out = prompt_llm(current_code, history_text, baseline_fitness, error_trace)
+            # Perform self-reflective analysis on last failure
+            reflection_text = get_last_failure_reflection(history)
             
-            new_code = extract_code(llm_out)
-            if not new_code:
-                print("Failed to get valid code from LLMs. Retrying...", flush=True)
+            print("Prompting LLM for new strategy with self-reflection context...", flush=True)
+            llm_out = prompt_llm(scoring_code, trade_params_code, history_text, baseline_fitness, reflection_text, error_trace)
+            
+            new_scoring, new_trade_params = extract_file_blocks(llm_out)
+            
+            if not new_scoring or not new_trade_params:
+                print("Failed to extract valid code blocks for both files. Retrying...", flush=True)
+                error_trace = "Output did not contain separate ```python code blocks for both scoring.py and trade_params.py."
                 continue
                 
-            note = extract_strategy_note(new_code)
+            note = extract_strategy_note(new_scoring)
             print(f"Proposed Strategy Note: '{note}'", flush=True)
                 
-            with open(TARGET_FILE, "w") as f:
-                f.write(new_code)
+            # Write both files
+            with open(FILE_SCORING, "w") as f:
+                f.write(new_scoring)
+            with open(FILE_TRADE_PARAMS, "w") as f:
+                f.write(new_trade_params)
                 
             print("Evaluating proposed strategy on Train window...", flush=True)
             train_metrics = run_backtest_and_get_metrics("2026-04-01", "2026-06-01")
             
             if train_metrics is None or train_metrics.get("warning"):
                 print("Proposed code crashed or returned 0 trades on Train set. Rolling back...", flush=True)
-                subprocess.run(["git", "checkout", TARGET_FILE], check=True)
+                subprocess.run(["git", "checkout", FILE_SCORING, FILE_TRADE_PARAMS], check=True)
                 error_trace = "The code failed to execute properly or generated 0 trades on the Train set."
                 
                 history.append({
@@ -280,7 +341,7 @@ def main():
                 
                 if test_metrics is None or test_metrics.get("warning"):
                     print("Strategy crashed on OOS Test set. Rejecting...", flush=True)
-                    subprocess.run(["git", "checkout", TARGET_FILE], check=True)
+                    subprocess.run(["git", "checkout", FILE_SCORING, FILE_TRADE_PARAMS], check=True)
                     history.append({
                         "generation": current_gen,
                         "score": train_fitness,
@@ -301,7 +362,7 @@ def main():
                 
                 if test_expectancy <= 0 or test_fitness < baseline_fitness:
                     print("[REJECT] Overfitting / Look-ahead detected. Rolling back...", flush=True)
-                    subprocess.run(["git", "checkout", TARGET_FILE], check=True)
+                    subprocess.run(["git", "checkout", FILE_SCORING, FILE_TRADE_PARAMS], check=True)
                     
                     history.append({
                         "generation": current_gen,
@@ -315,8 +376,8 @@ def main():
                     })
                 else:
                     print(f"[SUCCESS] New best strategy accepted! (+{train_fitness - baseline_fitness:.2f} fitness)", flush=True)
-                    subprocess.run(["git", "add", TARGET_FILE], check=True)
-                    subprocess.run(["git", "commit", "-m", f"agent: gen {current_gen} improved scoring. Fitness: {train_fitness:.2f}"], check=True)
+                    subprocess.run(["git", "add", FILE_SCORING, FILE_TRADE_PARAMS], check=True)
+                    subprocess.run(["git", "commit", "-m", f"agent: gen {current_gen} improved scoring and trade params. Fitness: {train_fitness:.2f}"], check=True)
                     
                     baseline_fitness = train_fitness
                     history.append({
@@ -331,7 +392,7 @@ def main():
                     })
             else:
                 print("Strategy did not beat train baseline. Rolling back...", flush=True)
-                subprocess.run(["git", "checkout", TARGET_FILE], check=True)
+                subprocess.run(["git", "checkout", FILE_SCORING, FILE_TRADE_PARAMS], check=True)
                 
                 history.append({
                     "generation": current_gen,
