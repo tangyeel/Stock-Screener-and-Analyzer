@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: stock-screener-v2
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        value: "8627084548:AAEpQXg8Ff3WBSYwh8s2DcdE_WWiwr_c_WM"
+      - key: TELEGRAM_CHAT_ID
+        value: "8215983641"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
