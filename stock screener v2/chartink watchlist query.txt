@@ -1,0 +1,25 @@
+( {cash} (
+    // ── WATCHLIST: Near-Breakout Candidates (NOT auto-traded) ──
+    // These stocks are coiling near their 52-week high and may break out tomorrow.
+    // They appear in the Watchlist tab on the dashboard only.
+
+    // Liquidity
+    latest volume * latest close > 50000000 and   // ₹5 Cr+ daily traded value
+    market cap > 1000 and
+    latest close > 30 and
+
+    // Trend: Price above SMA50, SMA50 above SMA200
+    latest close > sma( close, 50 ) and
+    sma( close, 50 ) > sma( close, 200 ) and
+
+    // Price is within 3% BELOW the 52-bar high (coiling for breakout)
+    latest close < max( 52, high ) and
+    latest close > max( 52, high ) * 0.97 and
+
+    // Narrowing range: 10-day range < 30-day range (coiling / VCP pattern)
+    ( ( max( 10, high ) - min( 10, low ) ) / min( 10, low ) * 100 )
+    < ( ( max( 30, high ) - min( 30, low ) ) / min( 30, low ) * 100 ) and
+
+    // Rising short-term volume (5-day average > 20-day average — accumulation)
+    sma( volume, 5 ) > sma( volume, 20 )
+) )

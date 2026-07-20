@@ -1,0 +1,37 @@
+( {cash} (
+    // ── LIQUIDITY ──
+    latest volume * latest close > 50000000 and   // ₹5 Cr+ daily traded value (not just count)
+    market cap > 1000 and
+    latest close > 30 and
+
+    // ── TREND: Price above rising SMA50, SMA50 above SMA200 ──
+    latest close > sma( close, 50 ) and
+    sma( close, 50 ) > sma( close, 200 ) and
+
+    // ── CONFIRMED BREAKOUT (fired 1-2 days ago, still holding today) ──
+    (
+        ( 1 day ago close > 3 days ago max( 52, high ) * 1.02 )
+        or
+        ( 2 days ago close > 4 days ago max( 52, high ) * 1.02 )
+    ) and
+
+    // ── VOLUME SURGE on breakout day (2x average, tightened from 1.5x) ──
+    (
+        ( 1 day ago volume > 2.0 * 1 day ago sma( volume, 20 ) )
+        or
+        ( 2 days ago volume > 2.0 * 2 days ago sma( volume, 20 ) )
+    ) and
+
+    // ── BULLISH CLOSE: Candle closed in top half on breakout day ──
+    (
+        ( 1 day ago close > ( 1 day ago high + 1 day ago low ) / 2 )
+        or
+        ( 2 days ago close > ( 2 days ago high + 2 days ago low ) / 2 )
+    ) and
+
+    // ── TIGHT BASE: < 8% range over 20 days (tightened from 12%) ──
+    ( ( 6 days ago max( 20, high ) - 6 days ago min( 20, low ) ) / 6 days ago min( 20, low ) * 100 ) < 8 and
+
+    // ── HOLDING BREAKOUT: Today's close still above the prior 52-bar high ──
+    latest close > 6 days ago max( 52, high )
+) )

@@ -1,0 +1,142 @@
+//@version=6
+strategy("NIFTY200 Momentum 30 - Swing w/ SL-TP Overlay", overlay=true,
+     initial_capital=100000, default_qty_type=strategy.fixed, default_qty_value=1,
+     commission_type=strategy.commission.percent, commission_value=0.05, pyramiding=0)
+
+// ============ MOMENTUM INPUTS ============
+grpMom = "Momentum Score"
+lookback6m     = input.int(126, "6M Lookback (trading days)", group=grpMom)
+lookback12m    = input.int(252, "12M Lookback (trading days)", group=grpMom)
+scoreThreshold = input.float(0.0, "Min Relative Score vs Benchmark", group=grpMom)
+
+grpReb = "Rebalance"
+rebalanceDays = input.int(10, "Rebalance Every N Bars (10=2wk, 21=monthly)", group=grpReb)
+
+grpTrend = "Trend / Regime Filters"
+smaTrendLen     = input.int(50, "Trend SMA Length", group=grpTrend)
+useRegimeFilter = input.bool(true, "Use Nifty Weekly 200-DMA Regime Filter", group=grpTrend)
+benchmarkSymbol = input.symbol("NSE:NIFTY", "Benchmark Index", group=grpTrend)
+
+grpRisk = "Risk Management"
+atrLen    = input.int(14, "ATR Length", group=grpRisk)
+atrMult   = input.float(2.0, "SL = Entry - ATR x Mult", group=grpRisk)
+target1R  = input.float(1.0, "T1 (in R multiples)", group=grpRisk)
+target2R  = input.float(2.0, "T2 (in R multiples)", group=grpRisk)
+riskPct   = input.float(1.0, "Risk % of Equity per Trade", group=grpRisk)
+t1QtyPct  = input.float(50, "Qty % to Book at T1", group=grpRisk)
+
+grpDate = "Backtest Window"
+startDate = input.time(timestamp("2015-01-01"), "Backtest Start", group=grpDate)
+inWindow  = time >= startDate
+
+// ============ MOMENTUM SCORE (stock) ============
+dailyRet = (close - close[1]) / close[1] * 100
+ret6m  = (close - close[lookback6m])  / close[lookback6m]  * 100
+ret12m = (close - close[lookback12m]) / close[lookback12m] * 100
+vol6m  = ta.stdev(dailyRet, lookback6m)
+vol12m = ta.stdev(dailyRet, lookback12m)
+stockScore = (ret6m / vol6m) + (ret12m / vol12m)
+
+// ============ MOMENTUM SCORE (benchmark) ============
+benchClose    = request.security(benchmarkSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+benchDailyRet = (benchClose - benchClose[1]) / benchClose[1] * 100
+benchRet6m  = (benchClose - benchClose[lookback6m])  / benchClose[lookback6m]  * 100
+benchRet12m = (benchClose - benchClose[lookback12m]) / benchClose[lookback12m] * 100
+benchVol6m  = ta.stdev(benchDailyRet, lookback6m)
+benchVol12m = ta.stdev(benchDailyRet, lookback12m)
+benchScore  = (benchRet6m / benchVol6m) + (benchRet12m / benchVol12m)
+
+relativeScore = stockScore - benchScore
+
+// ============ FILTERS ============
+trendOK = close > ta.sma(close, smaTrendLen)
+niftyWeeklyClose  = request.security(benchmarkSymbol, "W", close, lookahead=barmerge.lookahead_off)
+niftyWeeklySMA200 = request.security(benchmarkSymbol, "W", ta.sma(close, 200), lookahead=barmerge.lookahead_off)
+regimeOK = not useRegimeFilter or niftyWeeklyClose > niftyWeeklySMA200
+
+qualifies = relativeScore > scoreThreshold and trendOK and regimeOK
+isRebalanceBar = bar_index % rebalanceDays == 0
+atrVal = ta.atr(atrLen)
+
+// ============ TRADE STATE ============
+var float entryPrice = na
+var float slPrice    = na
+var float t1Price    = na
+var float t2Price    = na
+var int   qty        = na
+var float slWidth    = na
+
+var line entryLine = na
+var line slLine    = na
+var line t1Line    = na
+var line t2Line    = na
+
+canEnter   = inWindow and isRebalanceBar and qualifies and strategy.position_size == 0
+canExit    = isRebalanceBar and not qualifies and strategy.position_size > 0
+regimeExit = useRegimeFilter and not regimeOK and strategy.position_size > 0
+
+if canEnter
+    entryPrice := close
+    slPrice    := close - atrVal * atrMult
+    slWidth    := entryPrice - slPrice
+    t1Price    := entryPrice + slWidth * target1R
+    t2Price    := entryPrice + slWidth * target2R
+    riskAmount = strategy.equity * riskPct / 100
+    qty        := slWidth > 0 ? math.floor(riskAmount / slWidth) : 0
+
+    if qty > 0
+        strategy.entry("Long", strategy.long, qty=qty)
+        strategy.exit("T1", "Long", qty_percent=t1QtyPct, limit=t1Price, stop=slPrice)
+        strategy.exit("T2", "Long", qty_percent=100, limit=t2Price, stop=slPrice)
+
+        entryLine := line.new(bar_index, entryPrice, bar_index, entryPrice, color=color.blue, width=1, extend=extend.right)
+        slLine    := line.new(bar_index, slPrice, bar_index, slPrice, color=color.red, width=1, extend=extend.right)
+        t1Line    := line.new(bar_index, t1Price, bar_index, t1Price, color=color.green, width=1, extend=extend.right)
+        t2Line    := line.new(bar_index, t2Price, bar_index, t2Price, color=color.new(color.green, 40), width=1, extend=extend.right)
+
+if canExit or regimeExit
+    strategy.close("Long", comment=regimeExit ? "Regime Stop" : "Dropped Rank")
+
+// stop extending lines once flat
+if strategy.position_size == 0
+    if not na(entryLine)
+        line.set_extend(entryLine, extend.none)
+        line.set_extend(slLine, extend.none)
+        line.set_extend(t1Line, extend.none)
+        line.set_extend(t2Line, extend.none)
+
+// ============ OVERLAY TABLE ============
+var table infoTable = table.new(position.top_right, 2, 8, border_width=1)
+
+if barstate.islast
+    signalTxt = strategy.position_size > 0 ? "LONG" : "FLAT"
+    rrTxt     = str.tostring(target1R, "#.#") + " : " + str.tostring(target2R, "#.#")
+
+    table.cell(infoTable, 0, 0, "Signal", bgcolor=color.gray, text_color=color.white)
+    table.cell(infoTable, 1, 0, signalTxt, bgcolor=strategy.position_size > 0 ? color.green : color.red, text_color=color.white)
+
+    table.cell(infoTable, 0, 1, "Entry", bgcolor=color.new(color.blue, 80))
+    table.cell(infoTable, 1, 1, na(entryPrice) ? "-" : str.tostring(entryPrice, "#.##"))
+
+    table.cell(infoTable, 0, 2, "SL", bgcolor=color.new(color.red, 80))
+    table.cell(infoTable, 1, 2, na(slPrice) ? "-" : str.tostring(slPrice, "#.##"))
+
+    table.cell(infoTable, 0, 3, "T1", bgcolor=color.new(color.green, 80))
+    table.cell(infoTable, 1, 3, na(t1Price) ? "-" : str.tostring(t1Price, "#.##"))
+
+    table.cell(infoTable, 0, 4, "T2", bgcolor=color.new(color.green, 80))
+    table.cell(infoTable, 1, 4, na(t2Price) ? "-" : str.tostring(t2Price, "#.##"))
+
+    table.cell(infoTable, 0, 5, "Qty", bgcolor=color.new(color.gray, 80))
+    table.cell(infoTable, 1, 5, na(qty) ? "-" : str.tostring(qty))
+
+    table.cell(infoTable, 0, 6, "R:R", bgcolor=color.new(color.gray, 80))
+    table.cell(infoTable, 1, 6, rrTxt)
+
+    table.cell(infoTable, 0, 7, "SL Width", bgcolor=color.new(color.gray, 80))
+    table.cell(infoTable, 1, 7, na(slWidth) ? "-" : str.tostring(slWidth, "#.##"))
+
+// ============ CHART PLOTS ============
+plot(ta.sma(close, smaTrendLen), "Trend SMA", color=color.orange)
+bgcolor(qualifies ? color.new(color.green, 90) : color.new(color.red, 92), title="Qualifies Background")
+plotchar(isRebalanceBar, "Rebalance Bar", "•", location.top, color=color.blue, size=size.tiny)
