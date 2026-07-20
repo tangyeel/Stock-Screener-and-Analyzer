@@ -32,6 +32,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+import json
+
 def find_tracker_file():
     v2_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
@@ -48,6 +50,71 @@ def find_tracker_file():
 
 TRACKER_FILE = find_tracker_file()
 POLL_INTERVAL = 60 # seconds
+STATE_BACKUP_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tracker_state.json")
+
+def save_tracker_state():
+    """Saves Trade Log & Watchlist state to tracker_state.json for 100% server restart persistence."""
+    try:
+        tracker_file = find_tracker_file()
+        if not os.path.exists(tracker_file):
+            return
+        
+        xl = pd.ExcelFile(tracker_file)
+        state_data = {}
+        
+        if 'Trade Log' in xl.sheet_names:
+            df_log = pd.read_excel(tracker_file, sheet_name='Trade Log')
+            for col in df_log.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_log[col]):
+                    df_log[col] = df_log[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            state_data['trade_log'] = df_log.to_dict(orient='records')
+            
+        if 'Watchlist' in xl.sheet_names:
+            df_wl = pd.read_excel(tracker_file, sheet_name='Watchlist')
+            for col in df_wl.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_wl[col]):
+                    df_wl[col] = df_wl[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            state_data['watchlist'] = df_wl.to_dict(orient='records')
+            
+        with open(STATE_BACKUP_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state_data, f, indent=2, default=str)
+        print("[STATE PERSISTENCE] Successfully backed up trade state to tracker_state.json")
+    except Exception as e:
+        print("[STATE PERSISTENCE ERROR] Failed to save state:", e)
+
+def restore_tracker_state_if_needed():
+    """Restores trade log and watchlist from tracker_state.json on container reboot."""
+    try:
+        if not os.path.exists(STATE_BACKUP_FILE):
+            return
+            
+        with open(STATE_BACKUP_FILE, 'r', encoding='utf-8') as f:
+            state_data = json.load(f)
+            
+        tracker_file = find_tracker_file()
+        if not os.path.exists(tracker_file):
+            return
+            
+        if 'trade_log' in state_data and state_data['trade_log']:
+            df_log = pd.DataFrame(state_data['trade_log'])
+            if 'Date' in df_log.columns:
+                df_log['Date'] = pd.to_datetime(df_log['Date'], errors='coerce')
+            with pd.ExcelWriter(tracker_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                df_log.to_excel(writer, sheet_name='Trade Log', index=False)
+                
+        if 'watchlist' in state_data and state_data['watchlist']:
+            df_wl = pd.DataFrame(state_data['watchlist'])
+            if 'Date' in df_wl.columns:
+                df_wl['Date'] = pd.to_datetime(df_wl['Date'], errors='coerce')
+            with pd.ExcelWriter(tracker_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+                df_wl.to_excel(writer, sheet_name='Watchlist', index=False)
+                
+        print("[STATE PERSISTENCE] Successfully restored trade state on container startup!")
+    except Exception as e:
+        print("[STATE PERSISTENCE NOTICE] Could not restore state:", e)
+
+# Auto-restore state on startup if available
+restore_tracker_state_if_needed()
 
 # ==========================================
 # 2. PAPER TRADING ENGINE (BACKGROUND)
@@ -223,6 +290,7 @@ def run_paper_trader():
     if made_changes:
         try:
             wb.save(TRACKER_FILE)
+            save_tracker_state()
         except PermissionError:
             pass
 
@@ -492,6 +560,7 @@ def square_off_trade_from_telegram(sym):
                 break
         if found:
             wb.save(tracker_file)
+            save_tracker_state()
             return True, f"✅ <b>Successfully Squared Off {sym_clean}!</b>\n• Exit Price: ₹{exit_price:.2f}\n• Status: CLOSED - MANUAL (Telegram)"
         else:
             return False, f"⚠️ Could not find an active open trade for {sym_clean} in Excel."

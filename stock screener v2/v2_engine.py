@@ -13,10 +13,52 @@ from openpyxl.styles import PatternFill, Font, Alignment
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
+import json
+
+def find_tracker_file():
+    v2_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(v2_dir, "tracker.xlsx"),
+        os.path.join(os.getcwd(), "tracker.xlsx"),
+        os.path.join(os.getcwd(), "stock screener v2", "tracker.xlsx"),
+        os.path.join(v2_dir, "..", "tracker.xlsx"),
+        os.path.join(v2_dir, "..", "stock screener v2", "tracker.xlsx"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+    return os.path.join(v2_dir, "tracker.xlsx")
+
 V2_DIR = os.path.dirname(os.path.abspath(__file__))
 QUERY_FILE           = os.path.join(V2_DIR, "chartink query.txt")
 WATCHLIST_QUERY_FILE = os.path.join(V2_DIR, "chartink watchlist query.txt")
-TRACKER_FILE         = os.path.join(V2_DIR, "tracker.xlsx")
+TRACKER_FILE         = find_tracker_file()
+STATE_BACKUP_FILE    = os.path.join(V2_DIR, "tracker_state.json")
+
+def save_tracker_state():
+    try:
+        tracker_file = find_tracker_file()
+        if not os.path.exists(tracker_file):
+            return
+        xl = pd.ExcelFile(tracker_file)
+        state_data = {}
+        if 'Trade Log' in xl.sheet_names:
+            df_log = pd.read_excel(tracker_file, sheet_name='Trade Log')
+            for col in df_log.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_log[col]):
+                    df_log[col] = df_log[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            state_data['trade_log'] = df_log.to_dict(orient='records')
+        if 'Watchlist' in xl.sheet_names:
+            df_wl = pd.read_excel(tracker_file, sheet_name='Watchlist')
+            for col in df_wl.columns:
+                if pd.api.types.is_datetime64_any_dtype(df_wl[col]):
+                    df_wl[col] = df_wl[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+            state_data['watchlist'] = df_wl.to_dict(orient='records')
+        with open(STATE_BACKUP_FILE, 'w', encoding='utf-8') as f:
+            json.dump(state_data, f, indent=2, default=str)
+        print("[STATE PERSISTENCE] Successfully backed up trade state to tracker_state.json")
+    except Exception as e:
+        print("[STATE PERSISTENCE ERROR] Failed to save state:", e)
 
 # ─────────────────────────────────────────────
 # CONFIGURATION (tunable thresholds)
@@ -483,6 +525,7 @@ def main():
 
     try:
         wb.save(TRACKER_FILE)
+        save_tracker_state()
         print("\n-> Excel Tracker saved successfully.")
     except PermissionError:
         print(f"\n[ERROR] Cannot write to Excel. Please close '{TRACKER_FILE}' and retry.")
