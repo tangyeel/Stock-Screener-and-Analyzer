@@ -32,7 +32,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-TRACKER_FILE = r"g:\Stock Screener\stock screener v2\tracker.xlsx"
+V2_DIR = os.path.dirname(os.path.abspath(__file__))
+TRACKER_FILE = os.path.join(V2_DIR, "tracker.xlsx")
 POLL_INTERVAL = 60 # seconds
 
 # ==========================================
