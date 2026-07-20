@@ -32,8 +32,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-V2_DIR = os.path.dirname(os.path.abspath(__file__))
-TRACKER_FILE = os.path.join(V2_DIR, "tracker.xlsx")
+def find_tracker_file():
+    v2_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(v2_dir, "tracker.xlsx"),
+        os.path.join(os.getcwd(), "tracker.xlsx"),
+        os.path.join(os.getcwd(), "stock screener v2", "tracker.xlsx"),
+        os.path.join(v2_dir, "..", "tracker.xlsx"),
+        os.path.join(v2_dir, "..", "stock screener v2", "tracker.xlsx"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+    return os.path.join(v2_dir, "tracker.xlsx")
+
+TRACKER_FILE = find_tracker_file()
 POLL_INTERVAL = 60 # seconds
 
 # ==========================================
@@ -370,10 +383,11 @@ def analyze_stock_for_telegram(symbol):
         return f"❌ Error analyzing {sym}: {e}"
 
 def generate_detailed_status_and_menu():
-    if not os.path.exists(TRACKER_FILE):
-        return "❌ Tracker file not found.", None
+    tracker_file = find_tracker_file()
+    if not os.path.exists(tracker_file):
+        return f"❌ Tracker file not found.", None
     try:
-        wb = openpyxl.load_workbook(TRACKER_FILE, data_only=True)
+        wb = openpyxl.load_workbook(tracker_file, data_only=True)
         base_capital = 500000.0
         if 'Config' in wb.sheetnames:
             ws_c = wb['Config']
@@ -381,7 +395,7 @@ def generate_detailed_status_and_menu():
                 if row[0] and ("total capital" in str(row[0]).lower() or str(row[0]).lower() == "capital"):
                     try: base_capital = float(str(row[1]).replace('%','').replace(',',''))
                     except Exception: pass
-        df = pd.read_excel(TRACKER_FILE, sheet_name='Trade Log')
+        df = pd.read_excel(tracker_file, sheet_name='Trade Log')
         if df.empty: return "ℹ️ No trade data found in tracker.", None
         open_only = df[df['Status'].astype(str).str.contains('OPEN', case=False, na=False)].copy()
         closed_only = df[df['Status'].astype(str).str.contains('CLOSED', case=False, na=False)].copy()
@@ -461,7 +475,8 @@ def square_off_trade_from_telegram(sym):
         if not data.empty: exit_price = float(data['Close'].iloc[-1])
     except Exception: pass
     try:
-        wb = openpyxl.load_workbook(TRACKER_FILE)
+        tracker_file = find_tracker_file()
+        wb = openpyxl.load_workbook(tracker_file)
         ws = wb['Trade Log']
         found = False
         old_entry = 0.0
@@ -476,7 +491,7 @@ def square_off_trade_from_telegram(sym):
                 found = True
                 break
         if found:
-            wb.save(TRACKER_FILE)
+            wb.save(tracker_file)
             return True, f"✅ <b>Successfully Squared Off {sym_clean}!</b>\n• Exit Price: ₹{exit_price:.2f}\n• Status: CLOSED - MANUAL (Telegram)"
         else:
             return False, f"⚠️ Could not find an active open trade for {sym_clean} in Excel."
@@ -534,8 +549,9 @@ def run_telegram_listener():
                                 "• <code>/watchlist</code> — Near-breakout watchlist"
                             )
                         elif cmd == "/picks":
-                            if os.path.exists(TRACKER_FILE):
-                                df = pd.read_excel(TRACKER_FILE, sheet_name='Trade Log')
+                            tracker_file = find_tracker_file()
+                            if os.path.exists(tracker_file):
+                                df = pd.read_excel(tracker_file, sheet_name='Trade Log')
                                 pending = df[df['Status'].isna() | (df['Status'] == 'PENDING')]
                                 if not pending.empty:
                                     reply = "📋 <b>Pending Trades Allocated for Tomorrow:</b>\n\n"
@@ -546,10 +562,11 @@ def run_telegram_listener():
                             send_telegram_message(reply)
 
                         elif cmd == "/watchlist":
-                            if os.path.exists(TRACKER_FILE):
-                                xl = pd.ExcelFile(TRACKER_FILE)
+                            tracker_file = find_tracker_file()
+                            if os.path.exists(tracker_file):
+                                xl = pd.ExcelFile(tracker_file)
                                 if 'Watchlist' in xl.sheet_names:
-                                    wl_df = pd.read_excel(TRACKER_FILE, sheet_name='Watchlist')
+                                    wl_df = pd.read_excel(tracker_file, sheet_name='Watchlist')
                                     if not wl_df.empty and 'Stock' in wl_df.columns:
                                         reply = "👀 <b>Top Near-Breakout Watchlist:</b>\n\n"
                                         for idx, r_row in wl_df.head(8).iterrows():
