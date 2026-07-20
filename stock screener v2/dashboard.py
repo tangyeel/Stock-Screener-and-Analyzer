@@ -661,11 +661,60 @@ def run_telegram_listener():
             print("Error in Telegram listener loop:", e)
             time.sleep(5)
 
+def check_and_send_market_open_alert():
+    now = datetime.datetime.now()
+    if now.weekday() < 5 and now.hour == 9 and now.minute == 15:
+        today_str = now.strftime("%Y-%m-%d")
+        if getattr(sys, '_v2_market_open_alert_sent', '') != today_str:
+            sys._v2_market_open_alert_sent = today_str
+            
+            tracker_file = find_tracker_file()
+            msg = f"🟢 <b>MARKET OPEN — TRADING SESSION LIVE!</b> [{now.strftime('%d %b %Y, 09:15 AM')}]\n───────────────────────────\n\n"
+            
+            if os.path.exists(tracker_file):
+                try:
+                    df = pd.read_excel(tracker_file, sheet_name='Trade Log')
+                    pending = df[df['Status'].isna() | (df['Status'] == 'PENDING') | (df['Status'] == 'OPEN')]
+                    if not pending.empty:
+                        msg += f"🎯 <b>Active & Pending Trades We're Watching Today ({len(pending)}):</b>\n\n"
+                        for idx, r in pending.reset_index().iterrows():
+                            stk = r['Stock']
+                            entry = r['Entry Price (₹)']
+                            sl = r['SL Price (₹)']
+                            t1 = r['Target 1 (₹)']
+                            t2 = r['Target 2 (₹)']
+                            st = r['Status'] if not pd.isna(r['Status']) else 'PENDING'
+                            msg += f"<b>{idx+1}. {stk}</b> [{st}]\n   • Entry: ₹{entry} | SL: ₹{sl}\n   • T1: ₹{t1} | T2: ₹{t2}\n\n"
+                    else:
+                        msg += "ℹ️ <i>No pending entries or open trades active today.</i>\n\n"
+                except Exception as e:
+                    msg += f"<i>Note reading tracker: {e}</i>\n"
+            msg += "⚡ <i>Live 1m price monitoring and paper trader active!</i>"
+            send_telegram_message(msg)
+
+def send_startup_alert_if_needed():
+    if getattr(sys, '_v2_startup_alert_sent', False):
+        return
+    sys._v2_startup_alert_sent = True
+    now_str = datetime.datetime.now().strftime("%d %b %Y, %H:%M:%S")
+    msg = (
+        f"🚀 <b>V2 SYSTEM ONLINE & OPERATIONAL!</b> [{now_str}]\n"
+        f"───────────────────────────\n"
+        f"• 🤖 <b>24/7 Telegram Bot:</b> Online\n"
+        f"• 📈 <b>Paper Trader:</b> Active (8:00 AM - 4:00 PM Mon-Fri)\n"
+        f"• 🕔 <b>Auto Screener:</b> Scheduled daily at 4:00 PM\n"
+        f"• 💾 <b>State Persistence:</b> Active & Backed Up\n\n"
+        f"<i>Ready for trading! Send /status or any ticker (e.g. RELIANCE) to inspect.</i>"
+    )
+    send_telegram_message(msg)
+
 @st.cache_resource
 def start_background_paper_trader():
     def trader_loop():
+        send_startup_alert_if_needed()
         while True:
             try:
+                check_and_send_market_open_alert()
                 run_paper_trader()
             except Exception as e:
                 print("Error in background trader:", e)
