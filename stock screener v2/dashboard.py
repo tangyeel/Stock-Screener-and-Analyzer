@@ -403,27 +403,36 @@ def send_trade_event_alert(event_type, stock, price, details=""):
 def analyze_stock_for_telegram(symbol):
     sym = symbol.strip().upper()
     ticker_sym = sym if sym.endswith('.NS') else sym + '.NS'
+    raw_ticker = sym[:-3] if sym.endswith('.NS') else sym
     try:
         ticker = yf.Ticker(ticker_sym)
         hist = ticker.history(period="1y")
+        if isinstance(hist.columns, pd.MultiIndex):
+            hist.columns = hist.columns.get_level_values(0)
+        hist = hist.dropna(subset=['Close'])
         if hist.empty:
             return f"❌ Could not find data for ticker <b>{sym}</b>."
-        last_close = hist['Close'].iloc[-1]
-        high_52    = hist['High'].max()
-        low_52     = hist['Low'].min()
+        
+        last_close = float(hist['Close'].iloc[-1])
+        high_52    = float(hist['High'].max())
+        low_52     = float(hist['Low'].min())
         pct_from_high = ((high_52 - last_close) / high_52) * 100
-        sma50 = hist['Close'].rolling(50).mean().iloc[-1]
-        sma50_5d_ago = hist['Close'].rolling(50).mean().iloc[-6] if len(hist) >= 56 else sma50
+        
+        sma50_series = hist['Close'].rolling(50).mean()
+        sma50 = float(sma50_series.iloc[-1]) if not sma50_series.dropna().empty else last_close
+        sma50_5d_ago = float(sma50_series.iloc[-6]) if len(sma50_series.dropna()) >= 6 else sma50
         slope_up = sma50 > sma50_5d_ago
-        ret1m = ((last_close - hist['Close'].iloc[-21]) / hist['Close'].iloc[-21] * 100) if len(hist) >= 21 else 0.0
+        
+        ret1m = float(((last_close - hist['Close'].iloc[-21]) / hist['Close'].iloc[-21] * 100)) if len(hist) >= 21 else 0.0
+        
         delta = hist['Close'].diff()
         gain = delta.where(delta > 0, 0).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / loss
-        rsi = 100 - (100 / (1 + rs)).iloc[-1] if not rs.empty else 50.0
+        rsi = float(100 - (100 / (1 + rs)).iloc[-1]) if not rs.dropna().empty else 50.0
 
         if pct_from_high <= 0.5 and last_close > sma50 and slope_up:
-            signal_badge = "🟢 <b>CONFIRMED BREAKOUT READY</b>"
+            signal_badge = "🟢 <b>QUALIFIED CONFIRMED BREAKOUT</b>"
         elif pct_from_high <= 3.0 and last_close > sma50:
             signal_badge = "🟡 <b>WATCHLIST NEAR-BREAKOUT (Coiling)</b>"
         elif last_close > sma50:
@@ -436,16 +445,20 @@ def analyze_stock_for_telegram(symbol):
             news_list = ticker.news
             if news_list and len(news_list) > 0:
                 top_news = news_list[0]
-                title = top_news.get('title', top_news.get('headline', ''))
-                publisher = top_news.get('publisher', top_news.get('source', 'News'))
-                news_item = f"\n📰 <b>Latest News:</b> {title} (<i>{publisher}</i>)"
+                title = top_news.get('title') or top_news.get('headline') or top_news.get('content', {}).get('title', '')
+                publisher = top_news.get('publisher') or top_news.get('source') or top_news.get('content', {}).get('provider', {}).get('displayName', 'Market News')
+                if title:
+                    news_item = f"\n📰 <b>Latest News:</b> {title} (<i>{publisher}</i>)"
         except Exception: pass
 
         return (
-            f"🔍 <b>ANALYSIS REPORT: {ticker_sym}</b>\nSignal: {signal_badge}\n───────────────────────────\n"
-            f"• <b>LTP:</b> ₹{last_close:,.2f}\n• <b>52W High:</b> ₹{high_52:,.2f} ({pct_from_high:.1f}% below high)\n"
-            f"• <b>52W Low:</b> ₹{low_52:,.2f}\n• <b>50-DMA:</b> ₹{sma50:,.2f} ({'📈 Rising' if slope_up else '📉 Falling'})\n"
-            f"• <b>1-Month Return:</b> {ret1m:+.2f}%\n• <b>RSI (14):</b> {rsi:.1f}\n{news_item}"
+            f"🔍 <b>ANALYSIS REPORT: {raw_ticker}</b>\nSignal: {signal_badge}\n───────────────────────────\n"
+            f"• <b>LTP:</b> ₹{last_close:,.2f}\n"
+            f"• <b>52W High:</b> ₹{high_52:,.2f} ({pct_from_high:.1f}% below high)\n"
+            f"• <b>52W Low:</b> ₹{low_52:,.2f}\n"
+            f"• <b>50-DMA:</b> ₹{sma50:,.2f} ({'📈 Rising' if slope_up else '📉 Falling'})\n"
+            f"• <b>1-Month Return:</b> {ret1m:+.2f}%\n"
+            f"• <b>RSI (14):</b> {rsi:.1f}\n{news_item}"
         )
     except Exception as e:
         return f"❌ Error analyzing {sym}: {e}"
@@ -1159,19 +1172,28 @@ with tab4:
                     try:
                         news_items = ticker.news
                         if news_items and len(news_items) > 0:
-                            for item in news_items[:4]:
-                                title = item.get('title', item.get('headline', 'Market Update'))
-                                publisher = item.get('publisher', item.get('source', 'Financial News'))
-                                link = item.get('link', f"https://finance.yahoo.com/quote/{sym}")
+                            for item in news_items[:5]:
+                                c = item.get('content', {}) if isinstance(item.get('content'), dict) else {}
+                                title = item.get('title') or item.get('headline') or c.get('title', '')
+                                publisher = item.get('publisher') or item.get('source') or c.get('provider', {}).get('displayName', 'Financial News')
+                                link = item.get('url') or item.get('link') or c.get('canonicalUrl', {}).get('url') or c.get('clickThroughUrl', {}).get('url') or f"https://finance.yahoo.com/quote/{sym}"
                                 pub_time = item.get('providerPublishTime', None)
-                                time_str = datetime.datetime.fromtimestamp(pub_time).strftime('%d %b %Y, %H:%M') if pub_time else ""
+                                if not pub_time and 'pubDate' in c:
+                                    pub_time = c.get('pubDate')
                                 
-                                st.markdown(f"""
-                                <div style="background:rgba(255,255,255,0.05); border-left:4px solid #00F0FF; padding:12px 16px; margin-bottom:10px; border-radius:6px;">
-                                    <h4 style="margin:0; font-size:1.1rem;"><a href="{link}" target="_blank" style="color:#00F0FF; text-decoration:none;">{title}</a></h4>
-                                    <p style="margin:4px 0 0 0; color:#AAA; font-size:0.85rem;">Source: <b>{publisher}</b> {f'• {time_str}' if time_str else ''}</p>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                time_str = ""
+                                if isinstance(pub_time, (int, float)):
+                                    time_str = datetime.datetime.fromtimestamp(pub_time).strftime('%d %b %Y, %H:%M')
+                                elif isinstance(pub_time, str):
+                                    time_str = pub_time[:16].replace('T', ' ')
+                                    
+                                if title:
+                                    st.markdown(f"""
+                                    <div style="background:rgba(255,255,255,0.05); border-left:4px solid #00F0FF; padding:12px 16px; margin-bottom:10px; border-radius:6px;">
+                                        <h4 style="margin:0; font-size:1.1rem;"><a href="{link}" target="_blank" style="color:#00F0FF; text-decoration:none;">{title}</a></h4>
+                                        <p style="margin:4px 0 0 0; color:#AAA; font-size:0.85rem;">Source: <b>{publisher}</b> {f'• {time_str}' if time_str else ''}</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
                         else:
                             st.info(f"No recent news articles found for {raw_ticker}. <a href='https://finance.yahoo.com/quote/{sym}' target='_blank'>View on Yahoo Finance</a>", unsafe_allow_html=True)
                     except Exception as n_err:
